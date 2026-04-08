@@ -193,53 +193,39 @@ async function startTranscription() {
 // ==========================================
 
 async function transcribeWithFal(apiKey) {
-  // Datei als Data-URL lesen
-  updateProgress(10, "Datei wird vorbereitet...");
-  const audioUrl = await fileToDataUrl(selectedFile);
-
-  updateProgress(30, "Transkription läuft...");
+  const fal = window.createFalClient({ credentials: apiKey });
+  const falModel = modelSelect.value;
   const language = languageSelect.value;
 
-  const body = {
+  // Schritt 1: Datei hochladen via fal.ai Client
+  updateProgress(10, "Datei wird hochgeladen...");
+  const audioUrl = await fal.storage.upload(selectedFile);
+
+  // Schritt 2: Transkription starten
+  updateProgress(30, "Transkription läuft...");
+
+  const input = {
     audio_url: audioUrl,
     task: "transcribe",
     chunk_level: "segment",
-    batch_size: 64,
+    version: "3",
   };
 
   if (language !== "auto") {
-    body.language = language;
+    input.language = language;
   }
 
-  const falModel = modelSelect.value;
-  const response = await fetch(`https://fal.run/${falModel}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Key ${apiKey}`,
-      "Content-Type": "application/json",
+  const result = await fal.subscribe(falModel, {
+    input,
+    logs: false,
+    onQueueUpdate: (update) => {
+      if (update.status === "IN_PROGRESS") {
+        updateProgress(60, "Wird transkribiert...");
+      }
     },
-    body: JSON.stringify(body),
   });
 
-  const responseText = await response.text();
-
-  if (!response.ok) {
-    let errorMsg;
-    try {
-      const errData = JSON.parse(responseText);
-      errorMsg = errData.detail || errData.message || responseText;
-    } catch {
-      errorMsg = responseText;
-    }
-    throw new Error(`fal.ai Fehler (${response.status}): ${errorMsg}`);
-  }
-
-  let data;
-  try {
-    data = JSON.parse(responseText);
-  } catch {
-    throw new Error("Ungültige Antwort von fal.ai");
-  }
+  const data = result.data;
 
   // Timestamps formatieren
   if (timestampsCheckbox.checked && data.chunks && data.chunks.length > 0) {
@@ -253,15 +239,6 @@ async function transcribeWithFal(apiKey) {
   } else {
     showResult(data.text || "");
   }
-}
-
-async function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("Datei konnte nicht gelesen werden"));
-    reader.readAsDataURL(file);
-  });
 }
 
 // ==========================================

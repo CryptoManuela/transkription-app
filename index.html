@@ -6,6 +6,10 @@
   <title>Transkription — KI Maestra</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙</text></svg>">
+  <script type="module">
+    import { createFalClient } from "https://esm.sh/@fal-ai/client@1";
+    window.createFalClient = createFalClient;
+  </script>
 </head>
 <body>
   <div class="bg-glow bg-glow-1"></div>
@@ -158,6 +162,6 @@
     </footer>
   </div>
 
-  <script src="js/app.js"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
