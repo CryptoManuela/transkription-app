@@ -110,22 +110,20 @@ async function startTranscription() {
   resultSection.classList.add("hidden");
 
   try {
-    const MAX_CHUNK_SIZE = 20 * 1024 * 1024; // 20 MB
+    const MAX_CHUNK_SIZE = 24 * 1024 * 1024; // 24 MB (Groq limit: 25 MB)
 
     if (selectedFile.size <= MAX_CHUNK_SIZE) {
-      // Kleine Datei — direkt senden
-      updateProgress(0, "Transkription läuft...");
+      updateProgress(10, "Transkription läuft...");
       const result = await transcribeChunk(selectedFile, 0, 1);
       showResult(result);
     } else {
-      // Große Datei — in Stücke teilen
-      updateProgress(0, "Datei wird aufgeteilt...");
+      updateProgress(0, "Große Datei — wird in Teile aufgeteilt...");
       const chunks = splitFile(selectedFile, MAX_CHUNK_SIZE);
       const results = [];
 
       for (let i = 0; i < chunks.length; i++) {
         updateProgress(
-          ((i) / chunks.length) * 100,
+          (i / chunks.length) * 100,
           `Teil ${i + 1} von ${chunks.length} wird transkribiert...`
         );
         const result = await transcribeChunk(chunks[i], i, chunks.length);
@@ -161,23 +159,50 @@ function splitFile(file, maxSize) {
 }
 
 async function transcribeChunk(file, index, total) {
+  const language = languageSelect.value;
+
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("api_key", apiKey);
-  formData.append("language", languageSelect.value === "auto" ? "" : languageSelect.value);
+  formData.append("model", "whisper-large-v3");
+  if (language !== "auto") {
+    formData.append("language", language);
+  }
+  formData.append("response_format", "verbose_json");
 
-  const response = await fetch("/api/transcribe", {
-    method: "POST",
-    body: formData,
-  });
+  // Direkt an Groq API senden (CORS wird unterstützt)
+  const response = await fetch(
+    "https://api.groq.com/openai/v1/audio/transcriptions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+    }
+  );
 
-  const data = await response.json();
+  const responseText = await response.text();
 
   if (!response.ok) {
-    throw new Error(data.error || `Fehler bei Teil ${index + 1}`);
+    let errorMsg;
+    try {
+      const errData = JSON.parse(responseText);
+      errorMsg = errData.error?.message || responseText;
+    } catch {
+      errorMsg = responseText;
+    }
+    throw new Error(`Groq API Fehler (${response.status}): ${errorMsg}`);
   }
 
-  updateProgress(((index + 1) / total) * 100,
+  let data;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    throw new Error("Ungültige Antwort von Groq API");
+  }
+
+  updateProgress(
+    ((index + 1) / total) * 100,
     index + 1 === total ? "Fertig!" : `Teil ${index + 1} von ${total} fertig`
   );
 
