@@ -13,7 +13,9 @@ export default async (req) => {
       );
     }
 
-    const response = await fetch(`https://fal.run/${model}`, {
+    const url = `https://fal.run/${model}`;
+    console.log("Calling fal.ai:", url, "input:", JSON.stringify(input).substring(0, 200));
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Key ${api_key}`,
@@ -23,6 +25,13 @@ export default async (req) => {
     });
 
     const data = await response.text();
+
+    if (!response.ok) {
+      return new Response(
+        JSON.stringify({ error: data, debug: { url, status: response.status, model } }),
+        { status: response.status, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     return new Response(data, {
       status: response.status,
