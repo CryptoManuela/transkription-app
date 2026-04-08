@@ -73,8 +73,13 @@ Du baust die App Schritt für Schritt mit Claude (Desktop App oder Claude Code).
 ### Vorbereitung
 
 1. **fal.ai API-Key** holen (siehe Weg A, Schritt 1)
-2. **GitHub Account** anlegen
-3. **Netlify Account** anlegen
+2. **GitHub Account** anlegen → [github.com](https://github.com)
+3. **Netlify Account** anlegen → [netlify.com](https://app.netlify.com)
+4. **Connectoren in Claude aktivieren:**
+   - Öffne [claude.ai](https://claude.ai) und gehe in die **Einstellungen**
+   - Unter **Integrations** / **Connectoren**: Aktiviere **GitHub** und **Netlify**
+   - Autorisiere den Zugriff auf deinen GitHub- und Netlify-Account
+   - Damit kann Claude direkt Repos erstellen, Code pushen und deployen
 
 ### Prompt 1: Projekt erstellen
 
