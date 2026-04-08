@@ -1,0 +1,9 @@
+{
+  "name": "transkription-app",
+  "version": "1.0.0",
+  "description": "Audio & Video Transkription mit Whisper via Groq API",
+  "private": true,
+  "scripts": {
+    "dev": "npx netlify dev"
+  }
+}

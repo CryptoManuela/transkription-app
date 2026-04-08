@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transkription App — KI Maestra</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/dist/umd/util.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Transkription</h1>
+      <p class="subtitle">Audio & Video zu Text — powered by Whisper</p>
+    </header>
+
+    <!-- API Key -->
+    <section id="setup-section" class="card">
+      <h2>1. Groq API-Key</h2>
+      <p>Hol dir deinen kostenlosen Key auf <a href="https://console.groq.com" target="_blank">console.groq.com</a></p>
+      <div class="input-row">
+        <input type="password" id="api-key" placeholder="gsk_..." autocomplete="off">
+        <button id="save-key-btn" class="btn btn-secondary">Speichern</button>
+      </div>
+      <p id="key-status" class="status-text"></p>
+    </section>
+
+    <!-- Upload -->
+    <section id="upload-section" class="card">
+      <h2>2. Datei hochladen</h2>
+      <div id="drop-zone" class="drop-zone">
+        <div class="drop-zone-content">
+          <span class="drop-icon">🎙️</span>
+          <p>Datei hierher ziehen</p>
+          <p class="drop-hint">oder klicken zum Auswählen</p>
+          <p class="drop-formats">MP3, MP4, M4A, WAV, OGG, WEBM</p>
+        </div>
+        <input type="file" id="file-input" accept="audio/*,video/*,.mp3,.mp4,.m4a,.wav,.ogg,.webm" hidden>
+      </div>
+      <div id="file-info" class="file-info hidden">
+        <span id="file-name"></span>
+        <span id="file-size"></span>
+        <button id="remove-file" class="btn-icon" title="Entfernen">&times;</button>
+      </div>
+    </section>
+
+    <!-- Options -->
+    <section id="options-section" class="card">
+      <h2>3. Optionen</h2>
+      <div class="options-row">
+        <label for="language">Sprache:</label>
+        <select id="language">
+          <option value="de" selected>Deutsch</option>
+          <option value="en">Englisch</option>
+          <option value="fr">Französisch</option>
+          <option value="es">Spanisch</option>
+          <option value="it">Italienisch</option>
+          <option value="pt">Portugiesisch</option>
+          <option value="nl">Niederländisch</option>
+          <option value="pl">Polnisch</option>
+          <option value="auto">Automatisch erkennen</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Start Button -->
+    <button id="start-btn" class="btn btn-primary btn-large" disabled>
+      Transkription starten
+    </button>
+
+    <!-- Progress -->
+    <section id="progress-section" class="card hidden">
+      <h2>Fortschritt</h2>
+      <div class="progress-bar-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <p id="progress-text" class="progress-text">Vorbereitung...</p>
+    </section>
+
+    <!-- Result -->
+    <section id="result-section" class="card hidden">
+      <h2>Transkript</h2>
+      <div class="result-actions">
+        <button id="copy-btn" class="btn btn-secondary">Kopieren</button>
+        <button id="download-btn" class="btn btn-secondary">Download .txt</button>
+      </div>
+      <textarea id="transcript" readonly></textarea>
+    </section>
+
+    <footer>
+      <p>Gebaut mit Whisper (OpenAI) via Groq API — kostenlos & lokal verarbeitet</p>
+    </footer>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
