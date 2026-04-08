@@ -193,12 +193,11 @@ async function startTranscription() {
 // ==========================================
 
 async function transcribeWithFal(apiKey) {
-  // Schritt 1: Datei zu fal.ai CDN hochladen
-  updateProgress(20, "Datei wird hochgeladen...");
-  const audioUrl = await uploadToFal(apiKey, selectedFile);
+  // Datei als Data-URL lesen
+  updateProgress(10, "Datei wird vorbereitet...");
+  const audioUrl = await fileToDataUrl(selectedFile);
 
-  // Schritt 2: Transkription starten
-  updateProgress(50, "Transkription läuft...");
+  updateProgress(30, "Transkription läuft...");
   const language = languageSelect.value;
 
   const body = {
@@ -256,44 +255,13 @@ async function transcribeWithFal(apiKey) {
   }
 }
 
-async function uploadToFal(apiKey, file) {
-  const contentType = file.type || "audio/mp4";
-
-  // Schritt 1: Upload initiieren — bekommt signed URL zurück
-  const initResponse = await fetch(
-    "https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        file_name: file.name,
-        content_type: contentType,
-      }),
-    }
-  );
-
-  if (!initResponse.ok) {
-    const errText = await initResponse.text();
-    throw new Error(`Upload-Fehler (${initResponse.status}): ${errText}`);
-  }
-
-  const { upload_url, file_url } = await initResponse.json();
-
-  // Schritt 2: Datei an die signed URL hochladen
-  const uploadResponse = await fetch(upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: file,
+async function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Datei konnte nicht gelesen werden"));
+    reader.readAsDataURL(file);
   });
-
-  if (!uploadResponse.ok) {
-    throw new Error(`Datei-Upload fehlgeschlagen (${uploadResponse.status})`);
-  }
-
-  return file_url;
 }
 
 // ==========================================
