@@ -131,17 +131,28 @@ Kopiere diesen Prompt in Claude:
 >
 > Halte den Code einfach und gut kommentiert.
 
-### Prompt 2: Testen
+### Prompt 2: Auf GitHub veröffentlichen
 
-> Starte einen lokalen Server damit ich die App im Browser testen kann.
+> Erstelle ein GitHub-Repo namens "transkription-app" und pushe den gesamten Code dorthin.
 
-Claude wird `npx netlify dev` oder `npx serve .` vorschlagen. Öffne die angezeigte URL im Browser und teste mit einer kurzen Audiodatei.
+Claude nutzt den GitHub-Connector und erstellt das Repo automatisch für dich.
 
-### Prompt 3: Auf GitHub & Netlify veröffentlichen
+### Prompt 3: Auf Netlify deployen
 
-> Erstelle ein GitHub-Repo namens "transkription-app" und pushe den Code. Deploye die App dann auf Netlify.
+> Deploye die App auf Netlify. Verbinde das GitHub-Repo und starte den Deploy.
 
-### Prompt 4: Anpassen (optional)
+Claude nutzt den Netlify-Connector. Nach ca. 30 Sekunden bekommst du deine Live-URL.
+
+### Prompt 4: Testen
+
+1. Öffne die URL die Claude dir gibt
+2. Gib deinen fal.ai Key ein
+3. Lade eine kurze Audio-Datei hoch (1-2 Minuten zum Testen)
+4. Klicke "Transkription starten"
+
+Falls es nicht funktioniert: Schau in die Sektion **"Häufige Fehler & Fixes"** weiter unten.
+
+### Prompt 5: Anpassen (optional)
 
 Jetzt kannst du die App nach deinen Wünschen anpassen:
 
@@ -151,9 +162,9 @@ Oder:
 
 > Füge eine Option hinzu, die das Transkript zusammenfasst.
 
-Jede Änderung deployst du mit:
+Nach jeder Änderung:
 
-> Pushe die Änderungen auf GitHub und deploye auf Netlify.
+> Pushe die Änderungen auf GitHub und deploye neu auf Netlify.
 
 ---
 
