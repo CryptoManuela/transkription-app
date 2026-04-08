@@ -66,6 +66,8 @@ In Netlify unter **Site configuration** → **Change site name** kannst du die U
 
 Du baust die App Schritt für Schritt mit Claude (Desktop App oder Claude Code). Maximaler Lerneffekt!
 
+**Hinweis:** Dieser Weg ist anspruchsvoller. Claude baut die App nach deinem Prompt, aber das Ergebnis muss eventuell debuggt werden — das gehört zum Lernprozess dazu! Wenn du lieber sofort eine funktionierende App willst, nimm Weg A. Weg B ist für alle, die verstehen wollen wie so eine App von innen funktioniert.
+
 ### Vorbereitung
 
 1. **fal.ai API-Key** holen (siehe Weg A, Schritt 1)
@@ -204,6 +206,44 @@ Ja! Hake die Checkbox "Timestamps anzeigen" an. Dann steht vor jedem Abschnitt d
 
 **Mein fal.ai Key funktioniert nicht?**
 Prüfe: Hast du den **vollständigen** Key kopiert (mit dem `:` in der Mitte)? Der Secret-Teil wird nur einmal angezeigt. Im Zweifel: neuen Key erstellen.
+
+---
+
+## Häufige Fehler & Fixes (besonders für Weg B)
+
+Beim Bauen der App mit Claude können folgende Probleme auftreten. Das ist normal — Debugging gehört zum Prozess!
+
+### "No user found for Key ID and Secret"
+**Ursache:** Der fal.ai Key ist unvollständig oder falsch formatiert.
+**Fix:** Der Key muss BEIDE Teile enthalten, getrennt durch `:` — also `KEY_ID:KEY_SECRET`. Wenn du nur den ersten Teil hast (z.B. `0af4aa58-3b52-...` ohne Doppelpunkt), fehlt der Secret. Erstelle einen neuen Key und kopiere ihn sofort vollständig.
+
+### "Failed to fetch"
+**Ursache:** CORS — der Browser blockiert direkte API-Calls an fal.ai.
+**Fix:** Die fal.ai Calls (Storage Upload Init + Transkription) müssen über **Netlify Functions** laufen. Nur der Datei-Upload an die CDN-URL geht direkt vom Browser. Sage Claude: *"Die fal.ai API-Calls müssen über Netlify Functions als Proxy laufen, nicht direkt vom Browser."*
+
+### "404: Not Found" bei der Transkription
+**Ursache:** Falscher Modell-Name in der URL. fal.ai Modelle heißen `fal-ai/wizper` oder `fal-ai/whisper` — nicht `whisper-large-v3` (das ist Groq).
+**Fix:** Prüfe ob das Modell-Dropdown die richtigen Werte hat. Bei fal.ai muss die URL `https://fal.run/fal-ai/wizper` sein, nicht `https://fal.run/whisper-large-v3`. Sage Claude: *"Die Modell-Optionen im Dropdown müssen beim Laden zum gewählten Anbieter passen. fal.ai nutzt fal-ai/wizper, Groq nutzt whisper-large-v3."*
+
+### "Rate limit reached" (nur Groq)
+**Ursache:** Du hast das Groq-Stundenlimit erreicht (2h Audio pro Stunde).
+**Fix:** Warte bis das Limit zurückgesetzt wird (steht in der Fehlermeldung), oder wechsle zu fal.ai. Tipp: Nicht mehrfach mit der gleichen großen Datei probieren — jeder Versuch verbraucht Kontingent, auch wenn er fehlschlägt.
+
+### "Internal Server Error" / "Unexpected end of JSON"
+**Ursache:** Die Netlify Function crasht, oft wegen zu großer Dateien (>6 MB Body-Limit).
+**Fix:** Dateien dürfen NICHT durch die Netlify Function geschickt werden. Der Flow muss sein: Netlify Function holt nur die Upload-URL, die Datei selbst wird direkt an die CDN-URL geschickt. Sage Claude: *"Die Audio-Datei darf nicht durch die Netlify Function geschickt werden. Nur die Upload-URL-Anfrage geht über die Function, der eigentliche File-Upload geht direkt vom Browser an die upload_url."*
+
+### Die App zeigt "Fehler:" ohne Fehlermeldung
+**Ursache:** Der Fehler hat keine `.message` Property.
+**Fix:** Sage Claude: *"Die Fehlerbehandlung im catch-Block muss auch err.detail und JSON.stringify(err) prüfen, nicht nur err.message."*
+
+### Timestamps funktionieren nicht
+**Ursache:** fal.ai und Groq geben Timestamps in unterschiedlichen Formaten zurück.
+**Fix:** Bei fal.ai heißen sie `data.chunks[].timestamp[0]`, bei Groq `data.segments[].start`. Sage Claude: *"Timestamps müssen je nach Anbieter unterschiedlich ausgelesen werden."*
+
+### Modell-Dropdown zeigt falsche Optionen
+**Ursache:** Beim Laden der Seite wird das Dropdown nicht zum gewählten Anbieter aktualisiert.
+**Fix:** Sage Claude: *"Die Funktion updateModelOptions() muss beim Laden der Seite aufgerufen werden, nicht nur beim Wechsel des Anbieters."*
 
 ---
 
