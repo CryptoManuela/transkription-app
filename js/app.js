@@ -48,7 +48,7 @@ const groqKeyDeleteBtn = document.getElementById("groq-key-delete");
 // --- Init: Keys laden ---
 updateProviderUI();
 updateModelOptions();
-applyDiarizeConstraint();
+syncDiarizeAvailability();
 updateKeyUI("fal");
 updateKeyUI("groq");
 updateStartButton();
@@ -57,9 +57,12 @@ updateStartButton();
 providerSelect.addEventListener("change", () => {
   updateProviderUI();
   updateModelOptions();
-  applyDiarizeConstraint();
+  syncDiarizeAvailability();
   updateStartButton();
 });
+
+// --- Modell-Wechsel: Speaker-Trennung nur bei Whisper erlauben ---
+modelSelect.addEventListener("change", syncDiarizeAvailability);
 
 function updateProviderUI() {
   const provider = providerSelect.value;
@@ -87,20 +90,22 @@ function updateModelOptions() {
 }
 
 // Speaker-Trennung gibt es bei fal.ai nur mit dem Whisper-Modell (nicht Wizper).
-// Wenn die Checkbox an ist, erzwingen wir Whisper und sperren Wizper.
-function applyDiarizeConstraint() {
-  if (providerSelect.value !== "fal" || !diarizeCheckbox) return;
-  const wizperOpt = modelSelect.querySelector('option[value="fal-ai/wizper"]');
-  if (diarizeCheckbox.checked) {
-    modelSelect.value = "fal-ai/whisper";
-    if (wizperOpt) wizperOpt.disabled = true;
-  } else if (wizperOpt) {
-    wizperOpt.disabled = false;
-  }
-}
+// Die Checkbox ist daher nur aktivierbar, wenn Whisper gewaehlt ist.
+function syncDiarizeAvailability() {
+  if (!diarizeCheckbox) return;
+  const supportsDiarize =
+    providerSelect.value === "fal" && modelSelect.value === "fal-ai/whisper";
 
-if (diarizeCheckbox) {
-  diarizeCheckbox.addEventListener("change", applyDiarizeConstraint);
+  diarizeCheckbox.disabled = !supportsDiarize;
+  if (!supportsDiarize && diarizeCheckbox.checked) {
+    diarizeCheckbox.checked = false;
+  }
+  if (diarizeRow) diarizeRow.style.opacity = supportsDiarize ? "" : "0.45";
+  if (diarizeHint) {
+    diarizeHint.textContent = supportsDiarize
+      ? "Erkennt verschiedene Sprecher und kennzeichnet sie als „Sprecher 1“, „Sprecher 2“ … Sprecheranzahl wird automatisch erkannt."
+      : "Nur mit dem Whisper-Modell verfügbar — oben „Whisper Large v3 (fal.ai)“ als Modell wählen.";
+  }
 }
 
 // --- Key UI ---
@@ -395,7 +400,10 @@ async function falMultipartUpload(apiKey, file, contentType) {
 async function transcribeWithFal(apiKey) {
   const falModel = modelSelect.value;
   const language = languageSelect.value;
-  const useDiarize = !!(diarizeCheckbox && diarizeCheckbox.checked) && providerSelect.value === "fal";
+  const useDiarize =
+    !!(diarizeCheckbox && diarizeCheckbox.checked) &&
+    providerSelect.value === "fal" &&
+    falModel === "fal-ai/whisper";
 
   // Schritt 1+2: Datei zu fal hochladen (klein = ein Stück, gross = Multipart)
   const file_url = await uploadFileToFal(apiKey, selectedFile);
