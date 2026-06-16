@@ -1,3 +1,6 @@
+// Stellt die Transkription in die fal.ai-QUEUE (statt synchron auf das
+// Ergebnis zu warten). Gibt sofort eine request_id zurueck -> kein
+// "504 Inactivity Timeout" mehr, auch bei langen Aufnahmen.
 export default async (req) => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -7,13 +10,11 @@ export default async (req) => {
     const { api_key, model, input } = await req.json();
 
     if (!api_key || !model || !input) {
-      return new Response(
-        JSON.stringify({ error: "api_key, model und input sind erforderlich" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return json({ error: "api_key, model und input sind erforderlich" }, 400);
     }
 
-    const response = await fetch(`https://fal.run/${model}`, {
+    // Queue-Endpunkt: nimmt den Job an und antwortet sofort mit { request_id, ... }
+    const response = await fetch(`https://queue.fal.run/${model}`, {
       method: "POST",
       headers: {
         Authorization: `Key ${api_key}`,
@@ -29,12 +30,16 @@ export default async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: err.message }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return json({ error: err.message }, 500);
   }
 };
+
+function json(obj, status) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 export const config = {
   path: "/api/fal-transcribe",
