@@ -1,6 +1,9 @@
 // --- State ---
 let selectedFile = null;
 
+// --- Helper: warten ---
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // --- DOM ---
 const providerSelect = document.getElementById("provider");
 const groqKeySection = document.getElementById("groq-key-section");
@@ -231,7 +234,7 @@ async function startTranscription() {
 }
 
 // ==========================================
-// FAL.AI TRANSCRIPTION
+// FAL.AI TRANSCRIPTION  (Queue-API: einreichen -> pollen -> Ergebnis holen)
 // ==========================================
 
 async function transcribeWithFal(apiKey) {
@@ -275,8 +278,8 @@ async function transcribeWithFal(apiKey) {
     throw new Error(`Datei-Upload fehlgeschlagen (${uploadResponse.status})`);
   }
 
-  // Schritt 3: Transkription starten
-  updateProgress(50, "Transkription läuft...");
+  // Schritt 3: Transkription in die Queue stellen
+  updateProgress(50, "Transkription wird gestartet...");
 
   const input = {
     audio_url: file_url,
@@ -289,9 +292,9 @@ async function transcribeWithFal(apiKey) {
     input.language = language;
   }
 
-  let response;
+  let submitResponse;
   try {
-    response = await fetch("/api/fal-transcribe", {
+    submitResponse = await fetch("/api/fal-transcribe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -304,24 +307,76 @@ async function transcribeWithFal(apiKey) {
     throw new Error(`Transkription Netzwerkfehler: ${fetchErr.message}`);
   }
 
-  const responseText = await response.text();
+  const submitText = await submitResponse.text();
 
-  if (!response.ok) {
-    let errorMsg;
-    try {
-      const errData = JSON.parse(responseText);
-      errorMsg = errData.detail?.[0]?.msg || errData.detail || responseText;
-    } catch {
-      errorMsg = responseText;
-    }
-    throw new Error(`fal.ai Fehler (${response.status}): ${errorMsg}`);
+  if (!submitResponse.ok) {
+    throw new Error(`fal.ai Fehler (${submitResponse.status}): ${parseFalError(submitText)}`);
   }
 
-  let data;
+  let submitData;
   try {
-    data = JSON.parse(responseText);
+    submitData = JSON.parse(submitText);
   } catch {
-    throw new Error("Ungültige Antwort von fal.ai");
+    throw new Error("Ungültige Antwort von fal.ai (Submit)");
+  }
+
+  const requestId = submitData.request_id;
+  if (!requestId) {
+    throw new Error("Keine request_id von fal.ai erhalten");
+  }
+
+  // Schritt 4: Pollen, bis fertig (jeder Aufruf ist kurz -> kein Timeout)
+  updateProgress(60, "Transkription läuft... (bei langen Aufnahmen etwas Geduld)");
+
+  let data = null;
+  const intervalMs = 4000;
+  const maxTries = 225; // 225 * 4s = 15 Minuten Sicherheitsreserve
+
+  for (let i = 0; i < maxTries; i++) {
+    await sleep(intervalMs);
+
+    let statusResponse;
+    try {
+      statusResponse = await fetch("/api/fal-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: apiKey,
+          model: falModel,
+          request_id: requestId,
+        }),
+      });
+    } catch (pollErr) {
+      // Kurzer Netzwerk-Hänger beim Pollen -> nächster Versuch
+      continue;
+    }
+
+    const statusText = await statusResponse.text();
+
+    if (!statusResponse.ok) {
+      throw new Error(`Status-Abfrage fehlgeschlagen (${statusResponse.status}): ${parseFalError(statusText)}`);
+    }
+
+    let statusData;
+    try {
+      statusData = JSON.parse(statusText);
+    } catch {
+      throw new Error("Ungültige Antwort von fal.ai (Status)");
+    }
+
+    if (statusData.status === "COMPLETED") {
+      data = statusData.result;
+      break;
+    } else if (statusData.status === "IN_PROGRESS") {
+      updateProgress(80, "Transkription läuft...");
+    } else {
+      const pos = statusData.queue_position != null ? ` (Position ${statusData.queue_position})` : "";
+      updateProgress(65, `In der Warteschlange${pos}...`);
+    }
+  }
+
+  if (!data) {
+    throw new Error("Zeitüberschreitung — die Transkription hat zu lange gedauert. Bitte erneut versuchen.");
   }
 
   // Timestamps formatieren
@@ -338,8 +393,17 @@ async function transcribeWithFal(apiKey) {
   }
 }
 
+function parseFalError(responseText) {
+  try {
+    const errData = JSON.parse(responseText);
+    return errData.detail?.[0]?.msg || errData.detail || errData.error || responseText;
+  } catch {
+    return responseText;
+  }
+}
+
 // ==========================================
-// GROQ TRANSCRIPTION
+// GROQ TRANSCRIPTION  (unverändert)
 // ==========================================
 
 async function transcribeWithGroq(apiKey) {
