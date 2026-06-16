@@ -23,6 +23,9 @@ const removeFileBtn = document.getElementById("remove-file");
 const languageSelect = document.getElementById("language");
 const modelSelect = document.getElementById("model");
 const timestampsCheckbox = document.getElementById("timestamps");
+const diarizeCheckbox = document.getElementById("diarize");
+const diarizeRow = document.getElementById("diarize-row");
+const diarizeHint = document.getElementById("diarize-hint");
 const startBtn = document.getElementById("start-btn");
 const progressSection = document.getElementById("progress-section");
 const progressBar = document.getElementById("progress-bar");
@@ -45,6 +48,7 @@ const groqKeyDeleteBtn = document.getElementById("groq-key-delete");
 // --- Init: Keys laden ---
 updateProviderUI();
 updateModelOptions();
+applyDiarizeConstraint();
 updateKeyUI("fal");
 updateKeyUI("groq");
 updateStartButton();
@@ -53,6 +57,7 @@ updateStartButton();
 providerSelect.addEventListener("change", () => {
   updateProviderUI();
   updateModelOptions();
+  applyDiarizeConstraint();
   updateStartButton();
 });
 
@@ -60,6 +65,10 @@ function updateProviderUI() {
   const provider = providerSelect.value;
   groqKeySection.classList.toggle("hidden", provider !== "groq");
   falKeySection.classList.toggle("hidden", provider !== "fal");
+  // Speaker-Trennung nur bei fal.ai anzeigen
+  const showDiarize = provider === "fal";
+  if (diarizeRow) diarizeRow.classList.toggle("hidden", !showDiarize);
+  if (diarizeHint) diarizeHint.classList.toggle("hidden", !showDiarize);
 }
 
 function updateModelOptions() {
@@ -75,6 +84,23 @@ function updateModelOptions() {
       <option value="whisper-large-v3-turbo">Whisper Large v3 Turbo (schneller)</option>
     `;
   }
+}
+
+// Speaker-Trennung gibt es bei fal.ai nur mit dem Whisper-Modell (nicht Wizper).
+// Wenn die Checkbox an ist, erzwingen wir Whisper und sperren Wizper.
+function applyDiarizeConstraint() {
+  if (providerSelect.value !== "fal" || !diarizeCheckbox) return;
+  const wizperOpt = modelSelect.querySelector('option[value="fal-ai/wizper"]');
+  if (diarizeCheckbox.checked) {
+    modelSelect.value = "fal-ai/whisper";
+    if (wizperOpt) wizperOpt.disabled = true;
+  } else if (wizperOpt) {
+    wizperOpt.disabled = false;
+  }
+}
+
+if (diarizeCheckbox) {
+  diarizeCheckbox.addEventListener("change", applyDiarizeConstraint);
 }
 
 // --- Key UI ---
@@ -234,41 +260,44 @@ async function startTranscription() {
 }
 
 // ==========================================
-// FAL.AI TRANSCRIPTION  (Queue-API: einreichen -> pollen -> Ergebnis holen)
+// FAL.AI UPLOAD  (klein = ein Stück, gross = Multipart)
 // ==========================================
 
-async function transcribeWithFal(apiKey) {
-  const falModel = modelSelect.value;
-  const language = languageSelect.value;
-  const contentType = selectedFile.type || "audio/mp4";
+const FAL_MULTIPART_THRESHOLD = 90 * 1024 * 1024; // 90 MB (wie fal-SDK)
 
-  // Schritt 1: Upload initiieren (über Netlify Function — kein CORS-Problem)
+async function uploadFileToFal(apiKey, file) {
+  const contentType = file.type || "application/octet-stream";
+
+  // Grosse Dateien: Multipart-Upload (sonst 413 "Payload Too Large")
+  if (file.size > FAL_MULTIPART_THRESHOLD) {
+    return await falMultipartUpload(apiKey, file, contentType);
+  }
+
+  // Kleine Dateien: ein einziger Upload (wie bisher)
   updateProgress(10, "Upload wird vorbereitet...");
   const initResponse = await fetch("/api/fal-upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       api_key: apiKey,
-      file_name: selectedFile.name,
+      file_name: file.name,
       content_type: contentType,
     }),
   });
 
   if (!initResponse.ok) {
-    const errText = await initResponse.text();
-    throw new Error(`Upload-Init fehlgeschlagen: ${errText}`);
+    throw new Error(`Upload-Init fehlgeschlagen: ${await initResponse.text()}`);
   }
 
   const { upload_url, file_url } = await initResponse.json();
 
-  // Schritt 2: Datei hochladen
   updateProgress(30, "Datei wird hochgeladen...");
   let uploadResponse;
   try {
     uploadResponse = await fetch(upload_url, {
       method: "PUT",
       headers: { "Content-Type": contentType },
-      body: selectedFile,
+      body: file,
     });
   } catch (uploadErr) {
     throw new Error(`Datei-Upload Netzwerkfehler: ${uploadErr.message}`);
@@ -278,15 +307,119 @@ async function transcribeWithFal(apiKey) {
     throw new Error(`Datei-Upload fehlgeschlagen (${uploadResponse.status})`);
   }
 
+  return file_url;
+}
+
+// Multipart-Upload nach fal-CDN-v3-Contract:
+// initiate-multipart (ueber Netlify-Function, mit Key) -> Teile direkt zur CDN
+// (presigned, kein Key) -> complete.
+async function falMultipartUpload(apiKey, file, contentType) {
+  updateProgress(5, "Grosse Datei — Upload wird vorbereitet...");
+
+  const initRes = await fetch("/api/fal-upload-multipart", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: apiKey,
+      file_name: file.name,
+      content_type: contentType,
+    }),
+  });
+
+  if (!initRes.ok) {
+    throw new Error(`Multipart-Init fehlgeschlagen (${initRes.status}): ${await initRes.text()}`);
+  }
+
+  const { upload_url, file_url } = await initRes.json();
+  if (!upload_url || !file_url) {
+    throw new Error("Multipart-Init: keine Upload-URL erhalten");
+  }
+
+  const parsed = new URL(upload_url);
+  const chunkSize = 10 * 1024 * 1024; // 10 MB
+  const totalChunks = Math.ceil(file.size / chunkSize);
+  const parts = [];
+
+  for (let i = 0; i < totalChunks; i++) {
+    const start = i * chunkSize;
+    const end = Math.min(start + chunkSize, file.size);
+    const chunk = file.slice(start, end);
+    const partNumber = i + 1;
+    const partUrl = `${parsed.origin}${parsed.pathname}/${partNumber}${parsed.search}`;
+
+    let part = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const r = await fetch(partUrl, { method: "PUT", body: chunk });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const txt = await r.text();
+        let parsedPart = {};
+        try { parsedPart = JSON.parse(txt); } catch { parsedPart = {}; }
+        const etag = parsedPart.etag || r.headers.get("ETag") || r.headers.get("etag");
+        part = { partNumber: parsedPart.partNumber || partNumber, etag };
+        break;
+      } catch (e) {
+        if (attempt === 3) {
+          throw new Error(`Teil ${partNumber}/${totalChunks} fehlgeschlagen: ${e.message}`);
+        }
+        await sleep(1000 * attempt);
+      }
+    }
+
+    parts.push(part);
+    // Upload-Fortschritt zwischen 5% und 40% verteilen
+    const pct = 5 + Math.round((partNumber / totalChunks) * 35);
+    updateProgress(pct, `Datei wird hochgeladen... (${partNumber}/${totalChunks} Teile)`);
+  }
+
+  // Upload abschliessen
+  updateProgress(42, "Upload wird abgeschlossen...");
+  const completeUrl = `${parsed.origin}${parsed.pathname}/complete${parsed.search}`;
+  const completeRes = await fetch(completeUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parts }),
+  });
+
+  if (!completeRes.ok) {
+    throw new Error(`Upload-Abschluss fehlgeschlagen (${completeRes.status}): ${await completeRes.text()}`);
+  }
+
+  return file_url;
+}
+
+// ==========================================
+// FAL.AI TRANSCRIPTION  (Queue-API: einreichen -> pollen -> Ergebnis holen)
+// ==========================================
+
+async function transcribeWithFal(apiKey) {
+  const falModel = modelSelect.value;
+  const language = languageSelect.value;
+  const useDiarize = !!(diarizeCheckbox && diarizeCheckbox.checked) && providerSelect.value === "fal";
+
+  // Schritt 1+2: Datei zu fal hochladen (klein = ein Stück, gross = Multipart)
+  const file_url = await uploadFileToFal(apiKey, selectedFile);
+
   // Schritt 3: Transkription in die Queue stellen
   updateProgress(50, "Transkription wird gestartet...");
 
-  const input = {
-    audio_url: file_url,
-    task: "transcribe",
-    chunk_level: "segment",
-    version: "3",
-  };
+  let input;
+  if (falModel === "fal-ai/wizper") {
+    input = {
+      audio_url: file_url,
+      task: "transcribe",
+      chunk_level: "segment",
+      version: "3",
+    };
+  } else {
+    // fal-ai/whisper — unterstuetzt Speaker-Trennung (diarize)
+    input = {
+      audio_url: file_url,
+      task: "transcribe",
+      chunk_level: "segment",
+    };
+    if (useDiarize) input.diarize = true;
+  }
 
   if (language !== "auto") {
     input.language = language;
@@ -347,8 +480,7 @@ async function transcribeWithFal(apiKey) {
         }),
       });
     } catch (pollErr) {
-      // Kurzer Netzwerk-Hänger beim Pollen -> nächster Versuch
-      continue;
+      continue; // kurzer Netzwerk-Hänger -> nächster Versuch
     }
 
     const statusText = await statusResponse.text();
@@ -379,8 +511,14 @@ async function transcribeWithFal(apiKey) {
     throw new Error("Zeitüberschreitung — die Transkription hat zu lange gedauert. Bitte erneut versuchen.");
   }
 
-  // Timestamps formatieren
-  if (timestampsCheckbox.checked && data.chunks && data.chunks.length > 0) {
+  // --- Ergebnis formatieren ---
+  const hasSpeakers =
+    (data.diarization_segments && data.diarization_segments.length > 0) ||
+    (data.chunks && data.chunks.some((c) => c && c.speaker != null));
+
+  if (useDiarize && hasSpeakers) {
+    showResult(formatDiarized(data, timestampsCheckbox.checked));
+  } else if (timestampsCheckbox.checked && data.chunks && data.chunks.length > 0) {
     const text = data.chunks
       .map((chunk) => {
         const start = chunk.timestamp?.[0] ?? 0;
@@ -400,6 +538,76 @@ function parseFalError(responseText) {
   } catch {
     return responseText;
   }
+}
+
+// ==========================================
+// SPEAKER-TRENNUNG: Chunks + Diarisierung zu "Sprecher 1: ..." zusammenfuehren
+// ==========================================
+
+function segStart(seg) {
+  return seg.timestamp?.[0] ?? seg.start ?? 0;
+}
+function segEnd(seg) {
+  return seg.timestamp?.[1] ?? seg.end ?? Infinity;
+}
+
+function speakerForTime(t, segments) {
+  for (const s of segments) {
+    if (t >= segStart(s) && t < segEnd(s)) return s.speaker;
+  }
+  // Fallback: nächstgelegenes Segment
+  let best = null;
+  let bestDist = Infinity;
+  for (const s of segments) {
+    const dist = Math.abs(segStart(s) - t);
+    if (dist < bestDist) { bestDist = dist; best = s; }
+  }
+  return best ? best.speaker : null;
+}
+
+function formatDiarized(data, withTimestamps) {
+  const chunks = data.chunks || [];
+  const segments = data.diarization_segments || [];
+
+  if (!chunks.length) return data.text || "";
+
+  const speakerMap = {};
+  let counter = 0;
+  const labelFor = (raw) => {
+    const key = raw == null ? "?" : String(raw);
+    if (!(key in speakerMap)) {
+      counter += 1;
+      speakerMap[key] = `Sprecher ${counter}`;
+    }
+    return speakerMap[key];
+  };
+
+  const lines = [];
+  let curSpeaker = null;
+  let buffer = [];
+  let bufferStart = 0;
+
+  const flush = () => {
+    if (!buffer.length) return;
+    const prefix = withTimestamps ? `[${formatTimestamp(bufferStart)}] ` : "";
+    lines.push(`${prefix}${curSpeaker}: ${buffer.join(" ").replace(/\s+/g, " ").trim()}`);
+    buffer = [];
+  };
+
+  for (const chunk of chunks) {
+    const start = chunk.timestamp?.[0] ?? 0;
+    const raw = chunk.speaker != null ? chunk.speaker : speakerForTime(start, segments);
+    const label = labelFor(raw);
+    if (label !== curSpeaker) {
+      flush();
+      curSpeaker = label;
+      bufferStart = start;
+    }
+    buffer.push((chunk.text || "").trim());
+  }
+  flush();
+
+  return lines.join("\n\n");
 }
 
 // ==========================================
